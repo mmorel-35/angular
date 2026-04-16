@@ -12,6 +12,8 @@ import {
   inject,
   Injectable,
   NgZone,
+  TracingService,
+  TracingSnapshot,
 } from '@angular/core';
 import {Observable, Observer} from 'rxjs';
 import {RuntimeErrorCode} from './errors';
@@ -54,12 +56,24 @@ export class FetchBackend implements HttpBackend {
     inject(FetchFactory, {optional: true})?.fetch ?? ((...args) => globalThis.fetch(...args));
   private readonly ngZone = inject(NgZone);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly tracingService: TracingService<TracingSnapshot> | null = inject(TracingService, {
+    optional: true,
+  });
+
+  private maybePropagateTrace<T extends Function>(fn: T): T {
+    return this.tracingService?.propagate ? this.tracingService.propagate(fn) : fn;
+  }
 
   handle(request: HttpRequest<any>): Observable<HttpEvent<any>> {
     return new Observable((observer) => {
       const aborter = new AbortController();
 
-      this.doRequest(request, aborter.signal, observer).then(noop, (error) =>
+      const doRequestWithTrace = this.maybePropagateTrace(
+        (req: HttpRequest<any>, signal: AbortSignal, obs: Observer<HttpEvent<any>>) =>
+          this.doRequest(req, signal, obs),
+      );
+
+      doRequestWithTrace(request, aborter.signal, observer).then(noop, (error) =>
         observer.error(new HttpErrorResponse({error})),
       );
 

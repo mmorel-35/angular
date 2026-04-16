@@ -1488,6 +1488,9 @@ export type ProviderToken<T> = Type<T> | AbstractType<T> | InjectionToken<T>;
 export function provideStabilityDebugging(): EnvironmentProviders;
 
 // @public
+export function provideTracing<T extends TracingSnapshot>(service: Type<TracingService<T>>): EnvironmentProviders;
+
+// @public
 export function provideZoneChangeDetection(options?: NgZoneOptions): EnvironmentProviders;
 
 // @public
@@ -1874,6 +1877,29 @@ export class TestabilityRegistry {
 export interface TrackByFunction<T> {
     // (undocumented)
     <U extends T>(index: number, item: T & U): any;
+}
+
+// @public
+export enum TracingAction {
+    AFTER_NEXT_RENDER = 1,
+    CHANGE_DETECTION = 0
+}
+
+// @public
+export const TracingService: InjectionToken<TracingService<TracingSnapshot>>;
+
+// @public
+export interface TracingService<T extends TracingSnapshot> {
+    componentCreate?<T>(className: string | null, fn: () => T): T;
+    propagate?<T extends Function>(fn: T): T;
+    snapshot(linkedSnapshot: T | null): T;
+    wrapEventListener?<T extends Function>(element: HTMLElement, eventName: string, handler: T): T;
+}
+
+// @public
+export interface TracingSnapshot {
+    dispose(): void;
+    run<T>(action: TracingAction, fn: () => T): T;
 }
 
 // @public
