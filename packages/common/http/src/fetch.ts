@@ -12,6 +12,8 @@ import {
   inject,
   Injectable,
   NgZone,
+  TracingService,
+  TracingSnapshot,
 } from '@angular/core';
 import {Observable, Observer} from 'rxjs';
 import {RuntimeErrorCode} from './errors';
@@ -54,13 +56,32 @@ export class FetchBackend implements HttpBackend {
     inject(FetchFactory, {optional: true})?.fetch ?? ((...args) => globalThis.fetch(...args));
   private readonly ngZone = inject(NgZone);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly tracingService: TracingService<TracingSnapshot> | null = inject(TracingService, {
+    optional: true,
+  });
+
+  private maybePropagateTrace<T extends Function>(fn: T): T {
+    return this.tracingService?.propagate ? this.tracingService.propagate(fn) : fn;
+  }
 
   handle(request: HttpRequest<any>): Observable<HttpEvent<any>> {
     return new Observable((observer) => {
       const aborter = new AbortController();
 
-      this.doRequest(request, aborter.signal, observer).then(noop, (error) =>
-        observer.error(new HttpErrorResponse({error})),
+      // Wrap observer callbacks so the tracing context captured at request
+      // initiation is restored on every async response/error delivery boundary,
+      // matching the approach used by HttpXhrBackend.
+      const tracedNext = this.maybePropagateTrace(observer.next.bind(observer));
+      const tracedError = this.maybePropagateTrace(observer.error.bind(observer));
+      const tracedComplete = this.maybePropagateTrace(observer.complete.bind(observer));
+      const tracedObserver: Observer<HttpEvent<any>> = {
+        next: tracedNext,
+        error: tracedError,
+        complete: tracedComplete,
+      };
+
+      this.doRequest(request, aborter.signal, tracedObserver).then(noop, (error) =>
+        tracedError(new HttpErrorResponse({error})),
       );
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined;

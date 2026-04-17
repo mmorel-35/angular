@@ -46,6 +46,12 @@ export {
 } from './application/application_tokens';
 export {REQUEST, REQUEST_CONTEXT, RESPONSE_INIT, ResponseInit} from './application/platform_tokens';
 export {provideStabilityDebugging} from './application/stability_debug_impl';
+export {
+  provideTracing,
+  TracingAction,
+  TracingService,
+  TracingSnapshot,
+} from './application/tracing';
 export * from './change_detection';
 export {provideCheckNoChangesConfig} from './change_detection/provide_check_no_changes_config';
 export {

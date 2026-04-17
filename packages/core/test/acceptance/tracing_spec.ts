@@ -9,11 +9,13 @@
 import {
   afterEveryRender,
   Component,
+  Injectable,
+  provideTracing,
   provideZoneChangeDetection,
   signal,
-  ɵTracingAction as TracingAction,
-  ɵTracingService as TracingService,
-  ɵTracingSnapshot as TracingSnapshot,
+  TracingAction,
+  TracingService,
+  TracingSnapshot,
 } from '../../src/core';
 import {fakeAsync, TestBed} from '../../testing';
 
@@ -179,5 +181,40 @@ describe('TracingService', () => {
       'GrandChild',
       'Extra',
     ]);
+  });
+});
+
+describe('provideTracing()', () => {
+  it('should register the provided service as the TracingService', () => {
+    let snapshotCount = 0;
+
+    @Injectable()
+    class ConcreteTracingService implements TracingService<TracingSnapshot> {
+      snapshot(_linkedSnapshot: TracingSnapshot | null): TracingSnapshot {
+        snapshotCount++;
+        return {
+          run<T>(_action: TracingAction, fn: () => T): T {
+            return fn();
+          },
+          dispose() {},
+        };
+      }
+    }
+
+    TestBed.configureTestingModule({
+      providers: [provideZoneChangeDetection(), provideTracing(ConcreteTracingService)],
+    });
+
+    @Component({template: ''})
+    class App {}
+
+    const fixture = TestBed.createComponent(App);
+    fixture.changeDetectorRef.markForCheck();
+    fixture.detectChanges();
+
+    expect(snapshotCount).toBeGreaterThan(0);
+
+    const injectedService = TestBed.inject(TracingService);
+    expect(injectedService).toBeInstanceOf(ConcreteTracingService);
   });
 });

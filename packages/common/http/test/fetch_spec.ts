@@ -10,6 +10,7 @@ import {HttpEvent, HttpEventType, HttpRequest, HttpResponse} from '../index';
 import {TestBed} from '@angular/core/testing';
 import {Observable, of, Subject} from 'rxjs';
 import {catchError, retry, scan, skip, take, toArray} from 'rxjs/operators';
+import {TracingService, TracingSnapshot} from '@angular/core';
 
 import {
   HttpClient,
@@ -599,6 +600,99 @@ describe('FetchBackend', () => {
         // We need to restore the original fetch implementation, else the tests might become flaky
         globalThis.fetch = originalFetch;
       }
+    });
+  });
+
+  describe('tracing context propagation', () => {
+    let propagateCalled: boolean;
+    let mockTracingService: TracingService<TracingSnapshot>;
+
+    beforeEach(() => {
+      propagateCalled = false;
+
+      mockTracingService = {
+        snapshot: (_linkedSnapshot: TracingSnapshot | null) => ({
+          run: <T>(_action: any, fn: () => T) => fn(),
+          dispose: () => {},
+        }),
+        propagate: <T extends Function>(fn: T): T => {
+          const wrapped = function (this: unknown, ...args: unknown[]) {
+            propagateCalled = true;
+            return fn.apply(this, args);
+          } as unknown as T;
+          return wrapped;
+        },
+      };
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          {provide: FetchFactory, useClass: MockFetchFactory},
+          FetchBackend,
+          {provide: TracingService, useValue: mockTracingService},
+        ],
+      });
+
+      fetchMock = TestBed.inject(FetchFactory) as MockFetchFactory;
+      backend = TestBed.inject(FetchBackend);
+    });
+
+    it('propagates tracing context for successful responses', async () => {
+      const promise = trackEvents(backend.handle(TEST_POST));
+      // Reset after the initial subscribe (which may set propagateCalled synchronously
+      // for the Sent event) to verify the response delivery callback is also wrapped.
+      propagateCalled = false;
+      fetchMock.mockFlush(HttpStatusCode.Ok, 'OK', 'traced response');
+      const events = await promise;
+
+      // propagateCalled must be true due to the response delivery (observer.next/complete)
+      // running under a propagated context, not merely due to the initial doRequest call.
+      expect(propagateCalled).toBeTrue();
+      expect(events.length).toBe(2);
+      expect(events[1].type).toBe(HttpEventType.Response);
+      expect((events[1] as HttpResponse<string>).body).toBe('traced response');
+    });
+
+    it('propagates tracing context for error responses', async () => {
+      const promise = trackEvents(backend.handle(TEST_POST));
+      // Reset after the initial subscribe to verify the error delivery callback is wrapped.
+      propagateCalled = false;
+      fetchMock.mockErrorEvent(new Error('network error'));
+      await promise;
+
+      // propagateCalled must be true due to the error delivery (observer.error)
+      // running under a propagated context.
+      expect(propagateCalled).toBeTrue();
+    });
+
+    it('does not propagate when TracingService has no propagate method', async () => {
+      // Create a TracingService without a propagate() method
+      const noPropagate: TracingService<TracingSnapshot> = {
+        snapshot: (_linkedSnapshot: TracingSnapshot | null) => ({
+          run: <T>(_action: any, fn: () => T) => fn(),
+          dispose: () => {},
+        }),
+      };
+
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        providers: [
+          {provide: FetchFactory, useClass: MockFetchFactory},
+          FetchBackend,
+          {provide: TracingService, useValue: noPropagate},
+        ],
+      });
+
+      fetchMock = TestBed.inject(FetchFactory) as MockFetchFactory;
+      backend = TestBed.inject(FetchBackend);
+
+      const promise = trackEvents(backend.handle(TEST_POST));
+      fetchMock.mockFlush(HttpStatusCode.Ok, 'OK', 'response');
+      const events = await promise;
+
+      // Should still work – just without propagation
+      expect(events.length).toBe(2);
+      expect(events[1].type).toBe(HttpEventType.Response);
     });
   });
 });
