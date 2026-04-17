@@ -68,13 +68,20 @@ export class FetchBackend implements HttpBackend {
     return new Observable((observer) => {
       const aborter = new AbortController();
 
-      const doRequestWithTrace = this.maybePropagateTrace(
-        (req: HttpRequest<any>, signal: AbortSignal, obs: Observer<HttpEvent<any>>) =>
-          this.doRequest(req, signal, obs),
-      );
+      // Wrap observer callbacks so the tracing context captured at request
+      // initiation is restored on every async response/error delivery boundary,
+      // matching the approach used by HttpXhrBackend.
+      const tracedNext = this.maybePropagateTrace(observer.next.bind(observer));
+      const tracedError = this.maybePropagateTrace(observer.error.bind(observer));
+      const tracedComplete = this.maybePropagateTrace(observer.complete.bind(observer));
+      const tracedObserver: Observer<HttpEvent<any>> = {
+        next: tracedNext,
+        error: tracedError,
+        complete: tracedComplete,
+      };
 
-      doRequestWithTrace(request, aborter.signal, observer).then(noop, (error) =>
-        observer.error(new HttpErrorResponse({error})),
+      this.doRequest(request, aborter.signal, tracedObserver).then(noop, (error) =>
+        tracedError(new HttpErrorResponse({error})),
       );
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined;

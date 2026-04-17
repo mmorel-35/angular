@@ -7,7 +7,8 @@
  */
 
 import {InjectionToken} from '../di/injection_token';
-import {EnvironmentProviders, makeEnvironmentProviders} from '../di/provider_collection';
+import {EnvironmentProviders} from '../di/interface/provider';
+import {makeEnvironmentProviders} from '../di/provider_collection';
 import {Type} from '../interface/type';
 
 /**
@@ -140,9 +141,13 @@ export interface TracingService<T extends TracingSnapshot> {
  *
  * @usageNotes
  * ```ts
+ * import {Injectable} from '@angular/core';
  * import {provideTracing, TracingService, TracingSnapshot} from '@angular/core';
  *
- * class MyTracingService implements TracingService<MySnapshot> { ... }
+ * @Injectable()
+ * class MyTracingService implements TracingService<TracingSnapshot> {
+ *   snapshot(linkedSnapshot: TracingSnapshot | null): TracingSnapshot { ... }
+ * }
  *
  * bootstrapApplication(AppComponent, {
  *   providers: [provideTracing(MyTracingService)],

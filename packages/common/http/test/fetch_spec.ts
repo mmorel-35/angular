@@ -639,9 +639,14 @@ describe('FetchBackend', () => {
 
     it('propagates tracing context for successful responses', async () => {
       const promise = trackEvents(backend.handle(TEST_POST));
+      // Reset after the initial subscribe (which may set propagateCalled synchronously
+      // for the Sent event) to verify the response delivery callback is also wrapped.
+      propagateCalled = false;
       fetchMock.mockFlush(HttpStatusCode.Ok, 'OK', 'traced response');
       const events = await promise;
 
+      // propagateCalled must be true due to the response delivery (observer.next/complete)
+      // running under a propagated context, not merely due to the initial doRequest call.
       expect(propagateCalled).toBeTrue();
       expect(events.length).toBe(2);
       expect(events[1].type).toBe(HttpEventType.Response);
@@ -650,9 +655,13 @@ describe('FetchBackend', () => {
 
     it('propagates tracing context for error responses', async () => {
       const promise = trackEvents(backend.handle(TEST_POST));
+      // Reset after the initial subscribe to verify the error delivery callback is wrapped.
+      propagateCalled = false;
       fetchMock.mockErrorEvent(new Error('network error'));
       await promise;
 
+      // propagateCalled must be true due to the error delivery (observer.error)
+      // running under a propagated context.
       expect(propagateCalled).toBeTrue();
     });
 
